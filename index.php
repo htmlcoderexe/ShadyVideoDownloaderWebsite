@@ -1,13 +1,43 @@
 <?php
-if(isset($_COOKIE['downloader']))
+class YTDLP
 {
-    setcookie("downloader","[]",time()+60*60*24*30);
-    $DOWNLOADER=[];
+    
+    public static $DOWNLOADER=[];
+    
+    static function Init()
+    {
+        if(isset($_COOKIE['downloader']))
+        {
+            setcookie("downloader","[]",time()+60*60*24*30);
+            self::$DOWNLOADER=[];
+        }
+        else
+        {
+            self::$DOWNLOADER=json_decode(stripslashes($_COOKIE['downloader']));
+        }
+    }
+    
+    
 }
-else
+
+
+/**
+ * Try fetching job info for given ID
+ * @param string Job ID
+ * @return int index into the downloader array if found, -1 otherwise
+ */
+function getJobIndex($jobid)
 {
-    $DOWNLOADER=json_decode(stripslashes($_COOKIE['downloader']));
+    for($i=0;$i<count($DOWNLOADER);$i++)
+    {
+        if($DOWNLOADER[$i]['jobid']===$jobid)
+        {
+            return $i;
+        }
+    }
+    return -1;
 }
+
 function handleLine($line)
 {
     // find a tag first
@@ -176,43 +206,40 @@ function handleProvider($provider)
     return $data;
 }
 
-function getJobUpdates($jobid)
+function getJobUpdates($index)
 {
-     if(!isset($_SESSION['jobs']))
+    if(!isset($DOWNLOADER[$index]))
     {
-        $_SESSIOn['jobs']=[];
+        return [];
     }
-    if(!isset($_SESSION['jobs'][$jobid]))
-    {
-        $_SESSION['jobs'][$jobid]=[];
-    }
+    $jobid=$DOWNLOADER[$index]['jobid'];
     $filename=$jobpath."/".$jobid;
+    // return an array of a single update saying yep that's gone ditch the whole thing
     if(!file_exists($filename))
     {
-        echo ("$filename :(");
-        die;
+        return [["jobid"=>$jobid, "updateType"=>"job_gone"]];
     }
+    // get the file and prepare it for processing
     $datafile=file_get_contents($filename);
     $datafile=str_replace("\r","\n",$datafile);
     $datafile=str_replace("\n\n","\n",$datafile);
     $data=explode("\n",$datafile);
-    //$data=array_reverse($data);
-    if($_GET['info']==="dump")
-    {
-        var_dump($data);
-        die;
-    }
-    $current_vid=$_SESSION['jobs'][$jobid]['current']??0;
-    $linesreceived=$_SESSION['jobs'][$jobid]['lines']??0;
+    
+    // keep track of which download of this job the previous line applied to
+    $current_vid=$DOWNLOADER[$index]['current']??0;
+    // as well as which lines were already processed
+    $linesreceived=$DOWNLOADER[$index]['lines']??0;
+    // go over every line
     $out=[];
     for($i=$linesreceived;$i<count($data);$i++)
     {
-           
+        // skip the empty line?   
         if($data[$i]!="")
         {
             $update=handleLine($data[$i]);
             $update['jobid']=$jobid;
             $update['current']=$current_vid;
+            // only now skip to next if this was final step
             if($update['updateType']=="done")
             {
                 $current_vid++;
@@ -220,14 +247,21 @@ function getJobUpdates($jobid)
             $out[]= $update;
         }
     }
-    $_SESSION['jobs'][$jobid]['current']=$current_vid;
-    $_SESSION['jobs'][$jobid]['lines']=count($data)-1;
-    return json_encode($out);
+    // update the data 
+    $DOWNLOADER[$index]['current']=$current_vid;
+    $DOWNLOADER[$index]['lines']=count($data)-1;
+    
+    return $out;
 }
 
 function getAllJobs()
 {
-    
+    $updates =[];
+    for($i=0;$i<count($DOWNLOADER);$i++)
+    {
+        array_merge($updates, getJobUpdates($i));
+    }
+    return $updates;
 }
 
 
@@ -284,7 +318,7 @@ if(isset($_GET['url']))
         $videosaccepted[]=$video;
     }
     $jobid=md5($vlist.time());
-    $_SESSION['jobid']=$jobid;
+    //$_SESSION['jobid']=$jobid;
     $mode=$_GET['mode']??"video";
     
     
