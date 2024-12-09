@@ -254,11 +254,7 @@ class YTDLP
             // problems for later
             case "movefiles":
             {
-                self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="done";
-                self::$DOWNLOADER[self::$jobindex]['current']++;
-                return [
-                    "updateType"=>"done"
-                ];
+                return self::handleMoveFiles($rest);
             }
             // those are all postprocessing
             case "merger":
@@ -316,7 +312,21 @@ class YTDLP
         return floatval($num)*pow(1024,$mul);
     }
 
-
+    
+    static function handleMoveFiles($line)
+    {
+        $bits=explode('"',$line);
+        $fname=basename($bits[count($bits)-2]);
+        
+        self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['filename']=$fname;
+        self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="done";
+        self::$DOWNLOADER[self::$jobindex]['current']++;
+        return [
+            "updateType"=>"done",
+            "filename"=>$fname
+        ];
+    }
+    
     /**
      * Handles [download] tags, for progress
      * @param type $line
@@ -324,6 +334,7 @@ class YTDLP
      */
     static function handleDownload($line)
     {
+        
         // frustratingly enough, the output has plenty of different formats
         // 
         // YT       67.5% of 1.51MiB at 11.63MiB/s ETA 01:12
@@ -415,25 +426,25 @@ class YTDLP
         return $data;
     }
     
+    /**
+     * Try fetching job info for given ID
+     * @param string Job ID
+     * @return int index into the downloader array if found, -1 otherwise
+     */
+    static function getJobIndex($jobid)
+    {
+        for($i=0;$i<count(self::$DOWNLOADER);$i++)
+        {
+            if(self::$DOWNLOADER[$i]['jobid']===$jobid)
+            {
+                return $i;
+            }
+        }
+        return -1;
+    }
 }
 YTDLP::Init();
 
-/**
- * Try fetching job info for given ID
- * @param string Job ID
- * @return int index into the downloader array if found, -1 otherwise
- */
-function getJobIndex($jobid)
-{
-    for($i=0;$i<count($DOWNLOADER);$i++)
-    {
-        if($DOWNLOADER[$i]['jobid']===$jobid)
-        {
-            return $i;
-        }
-    }
-    return -1;
-}
 
 
 
@@ -531,6 +542,29 @@ if(isset($_GET['refresh']))
     YTDLP::SendTheBigOne();
 }
 
+if(isset($_GET['dljob']) && isset($_GET['dlidx']))
+{
+    $dljobid=$_GET['dljob'];
+    $dlidx=basename($_GET['dlidx']);
+    if(YTDLP::getJobIndex($dljobid)!==-1)
+    {
+        $mode="";
+        $path="";
+        $path.=$mode==="mp3"?YTDLP::$dl_dir_mp3:YTDLP::$dl_dir_common;
+        $path.="/";
+        $path.=$dljobid;
+        $path.="/";
+        $path.=$dlidx;
+        if(file_exists($path))
+        {
+            //header("Content-Type: ".$mode==="mp3"?"audio/mp3":"video/mp4");
+            //fpassthru()
+            header("Location: ".$path);
+            die;
+        }
+    }
+}
+
 // only html  beyond this point
 
 ?><!doctype html>
@@ -608,7 +642,7 @@ if(isset($_GET['refresh']))
                     s=document.createElement("a");
                     s.id='stat'+taskid;
                     s.dataset.status="done";
-                    s.href="index.php?dljob="+update.jobid+"&dlidx="+update.current;
+                    s.href="index.php?dljob="+update.jobid+"&dlidx="+encodeURIComponent(update.filename);
                     td.appendChild(s);
                     break;
                 }
@@ -726,7 +760,7 @@ if(isset($_GET['refresh']))
                 tr.appendChild(td_status);
                 var provider_indicator=document.createElement("span");
                 provider_indicator.id='vid'+taskid;
-                provider_indicator.dataset.provider=task.provider;
+                provider_indicator.dataset.provider=task.provider.toLowerCase();
                 provider_indicator.append("\xa0");
                 td_type.appendChild(provider_indicator);
                 var percent_container=document.createElement("div");
@@ -768,7 +802,7 @@ if(isset($_GET['refresh']))
                         window.ytdlp_done++;
                         percent_bar.dataset.progress=task.progress.percent;
                         percent_number.dataset.progress=task.progress.percent+"%";
-                        status_icon.href="index.php?dljob="+job.jobid+"&dlidx="+i;
+                        status_icon.href="index.php?dljob="+job.jobid+"&dlidx="+encodeURIComponent(task.filename);
                         break;
                     }
                     default:
