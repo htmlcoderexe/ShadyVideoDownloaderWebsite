@@ -18,21 +18,41 @@ class YTDLP
     
     static $jobindex=0;
     
+    static function SaveDownloader()
+    {
+        $jobs=[];
+        foreach(self::$DOWNLOADER as $jobinfo)
+        {
+            setcookie("job_".$jobinfo['jobid'],json_encode($jobinfo),time()+60*60*24*30);
+            $jobs[]=$jobinfo['jobid'];
+        }
+        setcookie("jobs",json_encode($jobs),time()+60*60*24*30);
+    }
+    
+    static function LoadDownloader()
+    {
+        if(!isset($_COOKIE['jobs']))
+        {
+            self::$DOWNLOADER=[];
+            setcookie("jobs",json_encode(self::$DOWNLOADER),time()+60*60*24*30);
+        }
+        $joblist=json_decode(stripslashes($_COOKIE['jobs']),true);
+        foreach($joblist as $job)
+        {
+            if(isset($_COOKIE['job_'.$job]))
+            {
+                self::$DOWNLOADER[]=json_decode(stripslashes($_COOKIE['job_'.$job]),true);
+            }
+        }
+    }
+    
     static function Init()
     {
         self::$youtubedl_video_standard=self::$yt_dl_format_1080p.self::$yt_dl_pls_no_sponsor;
         
         self::$args['tmp']=self::$yt_dl_temp_path;
         self::$args['out-tpl']=self::$output_format;
-        if(!isset($_COOKIE['downloader']))
-        {
-            self::$DOWNLOADER=[];
-            setcookie("downloader",json_encode(self::$DOWNLOADER),time()+60*60*24*30);
-        }
-        else
-        {
-            self::$DOWNLOADER=json_decode(stripslashes($_COOKIE['downloader']),true);
-        }
+        self::LoadDownloader();
     }
     /**
      * Gets a list of useable URLs out of user submitted junk
@@ -284,6 +304,10 @@ class YTDLP
         {
             if($data[$i]!=="." && !is_numeric($data[$i]))
             {
+                if(!isset($muls[$data[$i]]))
+                {
+                    return 0;
+                }
                 $mul=$muls[$data[$i]];
                 break;
             }
@@ -484,7 +508,7 @@ if(isset($_POST['urls']))
         ];
     }
     YTDLP::$DOWNLOADER[]=$dlinfo;
-    setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
+    YTDLP::SaveDownloader();
     echo str_pad(json_encode($response),2048," ");
     flush();
     exec($cmd);
@@ -497,7 +521,7 @@ if(isset($_POST['urls']))
 if(isset($_GET['info']))
 {
     $jobs=YTDLP::getAllJobs();
-    setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
+    YTDLP::SaveDownloader();
     echo json_encode($jobs);
     die;
 }
