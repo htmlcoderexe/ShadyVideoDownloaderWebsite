@@ -510,17 +510,14 @@ if(isset($_GET['refresh']))
         <script type="text/javascript">
         
         
-        
-        function ShowPercent(value)
+        function CheckMoreData()
         {
-            p=document.getElementById('percent');
-            p.style.display="inline-block";
-            p.innerHTML=value + "%";
-            if(value==100)
+            if(window.ytdlp_done>=window.ytdlp_total)
             {
-                p.innerHTML="Done";
+                window.clearInterval(window.refresher);
             }
         }
+        
         
         function RequestUpdate()
         {
@@ -532,10 +529,11 @@ if(isset($_GET['refresh']))
                     if(ajax.status === 200)
                     {
                        handleUpdateList(JSON.parse(ajax.responseText));
+                       
                     }
                 }
             };
-            ajax.open("GET","index.php?info=a&jobid="+window.dlInfo.jobid);
+            ajax.open("GET","index.php?info=");
             ajax.send();
         }
         function handleUpdateList(list)
@@ -556,39 +554,51 @@ if(isset($_GET['refresh']))
         {
             if(!update)
                 return;
-            var t=document.getElementById("vid"+window.dlInfo.jobid+window.dlInfo.current);
-            var s=document.getElementById("stat"+window.dlInfo.jobid+window.dlInfo.current);
-            var p=document.getElementById("pro"+window.dlInfo.jobid+window.dlInfo.current);
-            var pn=document.getElementById("pron"+window.dlInfo.jobid+window.dlInfo.current);
+            
+            var taskid=update.jobid+update.current;
+            var t=document.getElementById("vid"+taskid);
+            if(!t)
+            {
+                
+                return;
+            }
+            var s=document.getElementById("stat"+taskid);
+            var p=document.getElementById("pro"+taskid);
+            var pn=document.getElementById("pron"+taskid);
             switch(update.updateType)
             {
                 case "done":
                 {
                     console.log(update);
-                    s.innerHTML="✔";
-                    nextVideo();
+                    var td=s.parentElement;
+                    td.removeChild(s);
+                    
+                    s=document.createElement("a");
+                    s.id='stat'+taskid;
+                    s.dataset.status="done";
+                    s.href="index.php?dljob="+update.jobid+"&dlidx="+update.current;
+                    td.appendChild(s);
                     break;
                 }
                 case "error":
                 {
                     
                     console.log(update);
-                    s.innerHTML="❌";
-                    p.style.backgroundColor="red";
-                    p.style.minWidth="50%";
-                    nextVideo();
+                    s.dataset.status="error";
+                    p.dataset.progress="failed";
+                    pn.dataset.progress="failed";
                     break;
                 }
                 case "progress":
                 {
-                    pn.innerHTML=update.percent+"%";
-                    p.style.width=update.percent+"%";
-                    s.innerHTML="♻";
+                    s.dataset.status="downloading";
+                    p.dataset.progress=update.progress+"%";
+                    pn.dataset.progress=update.progress+"%";
                     break;
                 }
                 case "provider":
                 {
-                    t.className="provider_"+update.provider.toLowerCase();
+                    t.dataset.provider=update.provider.toLowerCase();
                     break;
                 }
                 case "other":
@@ -599,19 +609,29 @@ if(isset($_GET['refresh']))
             }
         }
         
-        function nextVideo()
-        {
-            window.dlInfo.current++;
-            if(window.dlInfo.current>=window.dlInfo.vidcount)
-            {
-                window.clearInterval(window.refresher);
-                window.dlInfo.current=0;
-            }
-        }
         function StartRequestor()
         {
             window.refresher=window.setInterval(RequestUpdate, 500);
+            CheckMoreData();
         }
+        
+        function StartFetchUpdate()
+        {
+            let ajax = new XMLHttpRequest();
+            ajax.onreadystatechange=function()
+            {
+                if(ajax.readyState===4)
+                {
+                    if(ajax.status === 200)
+                    {
+                       doFullReload(ajax.responseText);
+                    }
+                }
+            };
+            ajax.open("GET","index.php?refresh=");
+            ajax.send();
+        }
+        
         function getVideo()
         {
              let ajax = new XMLHttpRequest();
@@ -629,18 +649,23 @@ if(isset($_GET['refresh']))
             var urls=document.getElementById("url").value;
             document.getElementById("url").value="";
             ajax.open("POST","index.php");
-            ajax.send("url="+encodeURIComponent(urls)+"&mode="+encodeURIComponent(format));
+            ajax.send("urls="+encodeURIComponent(urls)+"&mode="+encodeURIComponent(format));
         
             //window.setTimeout(StartRequestor, 1000);
         }
         
-        function doFullReload(data)
+        function doFullReload(jobs)
         {
-            var jobs=JSON.parse(data);
+            var t=document.getElementById("status").getElementsByTagName('tbody')[0];
+            t.innerHTML="";
+            window.clearInterval(window.refresher);
+            window.ytdlp_total=0;
+            window.ytdlp_done=0;
             for(i=0;i<jobs.length;i++)
             {
-                
+                DisplayJob(job);
             }
+            StartRequestor();
         }
         
         function DisplayJob(job)
@@ -676,6 +701,7 @@ if(isset($_GET['refresh']))
                 status_icon.id='stat'+taskid;
                 status_icon.dataset.status=job.status;
                 td_status.appendChild(status_icon);
+                window.ytdlp_total++;
                 switch(job.status)
                 {
                     case "downloading":
@@ -685,11 +711,13 @@ if(isset($_GET['refresh']))
                     }
                     case "error":
                     {
+                        window.ytdlp_done++;
                         percent_bar.dataset.progress="failed";
                         break;
                     }
                     case "done":
                     {
+                        window.ytdlp_done++;
                         percent_bar.dataset.progress="100%";
                         status_icon.href="index.php?dljob="+job.id+"&dlidx="+i;
                         break;
@@ -712,23 +740,11 @@ if(isset($_GET['refresh']))
             document.getElementById("vidcount").innerHTML=window.dlInfo.vidcount;
             document.getElementById("jobid").innerHTML=window.dlInfo.jobid;
             document.getElementById("mode").innerHTML=window.dlInfo.mode;
-            for(i=0;i<window.dlInfo.vidcount;i++)
-            {
-                var t=document.getElementById("status").getElementsByTagName('tbody')[0];;
-                var tr=document.createElement("tr");
-                var td_type=document.createElement("td");
-                var td_progress=document.createElement("td");
-                var td_status=document.createElement("td");
-                tr.appendChild(td_type);
-                tr.appendChild(td_progress);
-                tr.appendChild(td_status);
-                td_type.innerHTML+=' <span id="vid'+window.dlInfo.jobid+i+'">&nbsp;</span><br />';
-                td_progress.innerHTML='<div><span class="progress" id ="pro'+window.dlInfo.jobid+i+'">&nbsp;</span><span class="progressNumber" id ="pron'+window.dlInfo.jobid+i+'">&nbsp;</span></div>';
-                td_status.innerHTML+=' <span id="stat'+window.dlInfo.jobid+i+'">⏳.</span><br />';
-                t.appendChild(tr);
-            }
-            StartRequestor(window.dlInfo.jobid);
+            StartFetchUpdate();
         }
+        
+        window.ytdlp_total=0;
+        window.ytdlp_done=0;
         </script>
         <style>
             *
