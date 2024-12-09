@@ -24,14 +24,14 @@ class YTDLP
         
         self::$args['tmp']=self::$yt_dl_temp_path;
         self::$args['out-tpl']=self::$output_format;
-        if(isset($_COOKIE['downloader']))
+        if(!isset($_COOKIE['downloader']))
         {
             self::$DOWNLOADER=[];
             setcookie("downloader",json_encode(self::$DOWNLOADER),time()+60*60*24*30);
         }
         else
         {
-            self::$DOWNLOADER=json_decode(stripslashes($_COOKIE['downloader']));
+            self::$DOWNLOADER=json_decode(stripslashes($_COOKIE['downloader']),true);
         }
     }
     /**
@@ -106,7 +106,7 @@ class YTDLP
             return [];
         }
         $jobid=self::$DOWNLOADER[$index]['jobid'];
-        $filename=$jobpath."/".$jobid;
+        $filename=self::$jobpath."/".$jobid;
         // return an array of a single update saying yep that's gone ditch the whole thing
         if(!file_exists($filename))
         {
@@ -129,7 +129,7 @@ class YTDLP
             // skip the empty line?   
             if($data[$i]!="")
             {
-                $update=handleLine($data[$i]);
+                $update=self::handleLine($data[$i]);
                 $update['jobid']=$jobid;
                 $update['current']=$current_vid;
                 $current_vid=self::$DOWNLOADER[$index]['current'];
@@ -388,7 +388,7 @@ class YTDLP
     }
     
 }
-
+YTDLP::Init();
 
 /**
  * Try fetching job info for given ID
@@ -480,10 +480,10 @@ if(isset($_POST['urls']))
         ];
     }
     YTDLP::$DOWNLOADER[]=$dlinfo;
+    setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
     echo str_pad(json_encode($response),2048," ");
     flush();
     exec($cmd);
-    setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
     die();
     
 }
@@ -624,11 +624,11 @@ if(isset($_GET['refresh']))
                 {
                     if(ajax.status === 200)
                     {
-                       doFullReload(ajax.responseText);
+                       doFullReload(JSON.parse(ajax.responseText));
                     }
                 }
             };
-            ajax.open("GET","index.php?refresh=");
+            ajax.open("GET","index.php?refresh=",true);
             ajax.send();
         }
         
@@ -648,7 +648,8 @@ if(isset($_GET['refresh']))
             var format=document.getElementById('controls').elements['format'].value;
             var urls=document.getElementById("url").value;
             document.getElementById("url").value="";
-            ajax.open("POST","index.php");
+            ajax.open("POST","index.php",true);
+            ajax.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
             ajax.send("urls="+encodeURIComponent(urls)+"&mode="+encodeURIComponent(format));
         
             //window.setTimeout(StartRequestor, 1000);
@@ -663,13 +664,14 @@ if(isset($_GET['refresh']))
             window.ytdlp_done=0;
             for(i=0;i<jobs.length;i++)
             {
-                DisplayJob(job);
+                DisplayJob(jobs[i]);
             }
             StartRequestor();
         }
         
         function DisplayJob(job)
         {
+           console.log(job);
            for(i=0;i<job.tasks.length;i++)
             {
                 var taskid=job.jobid+i;
@@ -695,7 +697,7 @@ if(isset($_GET['refresh']))
                 percent_number.className="progressNumber";
                 percent_number.id='pron'+taskid;
                 percent_container.appendChild(percent_bar);
-                percent_container.appendChild(percent_container);
+                percent_container.appendChild(percent_number);
                 td_progress.appendChild(percent_container);
                 var status_icon=job.status==="done"?document.createElement("a"):document.createElement("span");
                 status_icon.id='stat'+taskid;
@@ -734,7 +736,7 @@ if(isset($_GET['refresh']))
         
         function showInfo(info)
         {
-            //document.getElementById("percent").innerHTML=info;
+            console.log(info);
             window.dlInfo=JSON.parse(info);
             window.dlInfo.current=0;
             document.getElementById("vidcount").innerHTML=window.dlInfo.vidcount;
@@ -745,6 +747,7 @@ if(isset($_GET['refresh']))
         
         window.ytdlp_total=0;
         window.ytdlp_done=0;
+        window.onload=function(){StartFetchUpdate();};
         </script>
         <style>
             *
