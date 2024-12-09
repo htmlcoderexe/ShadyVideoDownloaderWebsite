@@ -465,6 +465,7 @@ if(isset($_POST['urls']))
         "cmd"=>$cmd
     ];
     $dlinfo=[
+        "jobid"=>$jobid,
         "current"=>0,
         "lines"=>0,
         "tasks"=>[]
@@ -472,6 +473,7 @@ if(isset($_POST['urls']))
     foreach($videos as $line)
     {
         $dlinfo['tasks'][]=[
+            "mode"=>$mode,
             "status"=>"waitng",
             "provider"=>"unknown",
             "progress"=>0
@@ -626,10 +628,80 @@ if(isset($_GET['refresh']))
             var format=document.getElementById('controls').elements['format'].value;
             var urls=document.getElementById("url").value;
             document.getElementById("url").value="";
-            ajax.open("GET","index.php?url="+encodeURIComponent(urls)+"&mode="+encodeURIComponent(format));
-            ajax.send();
+            ajax.open("POST","index.php");
+            ajax.send("url="+encodeURIComponent(urls)+"&mode="+encodeURIComponent(format));
         
             //window.setTimeout(StartRequestor, 1000);
+        }
+        
+        function doFullReload(data)
+        {
+            var jobs=JSON.parse(data);
+            for(i=0;i<jobs.length;i++)
+            {
+                
+            }
+        }
+        
+        function DisplayJob(job)
+        {
+           for(i=0;i<job.tasks.length;i++)
+            {
+                var taskid=job.jobid+i;
+                var t=document.getElementById("status").getElementsByTagName('tbody')[0];;
+                var tr=document.createElement("tr");
+                var td_type=document.createElement("td");
+                var td_progress=document.createElement("td");
+                var td_status=document.createElement("td");
+                tr.appendChild(td_type);
+                tr.appendChild(td_progress);
+                tr.appendChild(td_status);
+                var provider_indicator=document.createElement("span");
+                provider_indicator.id='vid'+taskid;
+                provider_indicator.dataset.provider=job.provider;
+                td_type.appendChild(provider_indicator);
+                var percent_container=document.createElement("div");
+                var percent_bar=document.createElement("span");
+                var percent_number=document.createElement("span");
+                percent_bar.id='pro'+taskid;
+                percent_bar.className="progress";
+                percent_bar.style.width=job.progress+"%";
+                percent_bar.dataset.progress=job.progress;
+                percent_number.className="progressNumber";
+                percent_number.id='pron'+taskid;
+                percent_container.appendChild(percent_bar);
+                percent_container.appendChild(percent_container);
+                td_progress.appendChild(percent_container);
+                var status_icon=job.status==="done"?document.createElement("a"):document.createElement("span");
+                status_icon.id='stat'+taskid;
+                status_icon.dataset.status=job.status;
+                td_status.appendChild(status_icon);
+                switch(job.status)
+                {
+                    case "downloading":
+                    {
+                        percent_bar.dataset.progress=job.progress;
+                        break;
+                    }
+                    case "error":
+                    {
+                        percent_bar.dataset.progress="failed";
+                        break;
+                    }
+                    case "done":
+                    {
+                        percent_bar.dataset.progress="100%";
+                        status_icon.href="index.php?dljob="+job.id+"&dlidx="+i;
+                        break;
+                    }
+                    default:
+                    {
+                        percent_bar.dataset.progress="";
+                    }
+                }
+                t.appendChild(tr);
+                
+            } 
         }
         
         function showInfo(info)
@@ -673,6 +745,7 @@ if(isset($_GET['refresh']))
                 display:inline-block;
                 background-color: #3F7FFF;
                 transition: width 0.5s;
+                content:" ";
             }
             span.progressNumber
             {
@@ -685,27 +758,55 @@ if(isset($_GET['refresh']))
                 text-align: center;
                 font-size:2em;
                 font-weight:bold;
+                content: attr(data-progress);
             }
-            .provider_youtube::before
+            [data-provider=youtube]
             {
                 border-radius:3px;
                 content:'▶';
                 color:white;
                 background-color:red;
             }
-            .provider_xhamster::before
+            [data-provider=xhamster]
             {
                 content: '🐹';
             }
-            .provider_pornhub::before
+            [data-provider=pornhub]
             {
                 background-color: black;
                 color: orange;
                 content: 'PH';
             }
-            .provider_reddit::before
+            [data-provider=reddit]
             {
                 content: '👽';
+            }
+            
+            [data-status=waiting]
+            {
+                content: '⏳';
+            }
+            [data-status=downloading]
+            {
+                content: '♻';
+            }
+            [data-status=processing]
+            {
+                content: '⚙';
+            }
+            [data-status=done]
+            {
+                content: '✔';
+            }
+            [data-status=error]
+            {
+                content: '❌';
+            }
+            
+            [data-progress=failed]
+            {
+                min-width:50%;
+                background-color: red;
             }
             #status
             {
