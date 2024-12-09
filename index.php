@@ -1,22 +1,391 @@
 <?php
 class YTDLP
 {
-    
+    public static $yt_dl_base='yt-dlp --cache-dir .cache';
+    public static $output_format ="%(title)s.%(ext)s";
+    public static $yt_dl_temp_path="./tmp";
+    public static $dl_dir_common='files';
+    public static $dl_dir_mp3='mp3';
+    public static $yt_dl_format_1080p=' -S res:1080,fps,+codec:avc:m4a ';
+    public static $yt_dl_subs_yes=' --write-sub --write-auto-sub --sub-langs "en,no,no-nb,no-bm,ru,nl,nl-be" --embed-subs --compat-options no-keep-subs ';
+    public static $yt_dl_pls_no_sponsor=' --sponsorblock-remove sponsor --sponsorblock-mark all,-filler ';
+    public static $youtubedl_video_standard;
+    public static $youtubemp3=" -x --audio-format mp3 ";
+    public static $jobpath="jobs";
+    public static $args=[];
+
     public static $DOWNLOADER=[];
+    
+    static $jobindex=0;
     
     static function Init()
     {
+        self::$youtubedl_video_standard=self::$yt_dl_format_1080p.self::$yt_dl_pls_no_sponsor;
+        
+        self::$args['tmp']=self::$yt_dl_temp_path;
+        self::$args['out-tpl']=self::$output_format;
         if(isset($_COOKIE['downloader']))
         {
-            setcookie("downloader","[]",time()+60*60*24*30);
             self::$DOWNLOADER=[];
+            setcookie("downloader",json_encode(self::$DOWNLOADER),time()+60*60*24*30);
         }
         else
         {
             self::$DOWNLOADER=json_decode(stripslashes($_COOKIE['downloader']));
         }
     }
+    /**
+     * Gets a list of useable URLs out of user submitted junk
+     * @param string $inputstring
+     * @return array of (potential) URLs
+     */
+    static function extractJob($inputstring)
+    {
+        $vlist=str_replace("\r","\n",$inputstring);
+        $vlist=str_replace("\n\n","\n",$vlist);
+        $videos=explode("\n",$vlist);
+        $videosaccepted=[];
+        // reject stuff like random bits and empty lines
+        foreach($videos as $video)
+        {
+            // drop any spaces and other fluff
+            $video=trim($video);
+            // reject anything too short to be a link
+            if(strlen($video)<10)
+            {
+                continue;
+            }
+            // might add support for pasting just youtube IDs later
+            if(substr($video,0,4)!="http")
+            {
+                continue;
+            }
+            if(true)//idk what to write here
+            {
+
+            }
+            $videosaccepted[]=$video;
+        }
+        return $videosaccepted;
+    }
+    /**
+     * builds a command line for exec
+     * @param string $dl_mode params to pick specific formats
+     * @param type $jobid jobid as picked by hashing
+     * @param type $vlist list of videos
+     * @return string
+     */
+    static function buildCMD($dl_mode,$jobid,$vlist)
+    {
+        $vlist_args=implode(" ",array_map("escapeshellarg",$vlist));
+        
+        $cmd="";
+        
+        $cmd.=self::$yt_dl_base;
+        $cmd.=" -P ".self::$args['tmp'];
+        $cmd.=" -P ".self::$args['out-path'];
+        $cmd.=$dl_mode;
+        $cmd.=" -- ";
+        $cmd.=$vlist_args;
+        $cmd.="> ".self::$jobpath."/$jobid 2>&1";
+        
+        $cmd.=" &";
+        
+        return $cmd;
+    }
     
+    /**
+     * Get job updates for a job at a specific index
+     * @param int $index
+     * @return array updates if job found
+     */
+    static function getJobUpdates($index)
+    {
+        if(!isset(self::$DOWNLOADER[$index]))
+        {
+            return [];
+        }
+        $jobid=self::$DOWNLOADER[$index]['jobid'];
+        $filename=$jobpath."/".$jobid;
+        // return an array of a single update saying yep that's gone ditch the whole thing
+        if(!file_exists($filename))
+        {
+            return [["jobid"=>$jobid, "updateType"=>"job_gone"]];
+        }
+        // get the file and prepare it for processing
+        $datafile=file_get_contents($filename);
+        $datafile=str_replace("\r","\n",$datafile);
+        $datafile=str_replace("\n\n","\n",$datafile);
+        $data=explode("\n",$datafile);
+
+        // keep track of which download of this job the previous line applied to
+        $current_vid=self::$DOWNLOADER[$index]['current']??0;
+        // as well as which lines were already processed
+        $linesreceived=self::$DOWNLOADER[$index]['lines']??0;
+        // go over every line
+        $out=[];
+        for($i=$linesreceived;$i<count($data);$i++)
+        {
+            // skip the empty line?   
+            if($data[$i]!="")
+            {
+                $update=handleLine($data[$i]);
+                $update['jobid']=$jobid;
+                $update['current']=$current_vid;
+                $current_vid=self::$DOWNLOADER[$index]['current'];
+                $out[]= $update;
+            }
+        }
+        // update the data 
+        self::$DOWNLOADER[$index]['lines']=count($data)-1;
+
+        return $out;
+    }
+    
+    static function SetJobProp($prop,$value)
+    {
+        self::$DOWNLOADER[self::$updaterindex][$prop]=$value;
+    }
+    
+    static function SendTheBigOne()
+    {
+        echo(json_encode(self::$DOWNLOADER));
+        die;
+    }
+    
+    /**
+     * Consolidate updates from every currently active job (for this user)
+     * @return array
+     */
+    static function getAllJobs()
+    {
+        $updates =[];
+        for($i=0;$i<count(self::$DOWNLOADER);$i++)
+        {
+            self::$jobindex=$i;
+            array_merge($updates, self::getJobUpdates($i));
+        }
+        return $updates;
+    }
+    /**
+     * Processes a single line of yt-dlp output and extracts
+     * useful information to report back to the user interface
+     * @param type $line
+     * @return array an update that can be sent to the UI
+     */
+    static function handleLine($line)
+    {
+        // find a tag first
+        $tag="";
+        if($line[0]=="[")
+        {
+            $rbracket=strpos($line,"]");
+            if($rbracket!==false)
+            {
+                // extract the tag and send it on with the rest of the line
+                $tag=substr($line,1,$rbracket-1);
+                $rest=substr($line,$rbracket+2);
+                return self::handleTag($tag,$rest);
+            }
+        }
+        // if no tag was found look here
+        return self::handleOther($line);
+    }
+    /**
+     * Handles stuff without a [tag] at the start
+     * @param type $line
+     * @return array an update it can extract
+     */
+    static function handleOther($line)
+    {
+        // lines starting with error are bad news
+        if(substr($line,0,5)=="ERROR")
+        {
+            self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="error";
+            self::$DOWNLOADER[self::$jobindex]['current']++;
+            return [
+              "updateType"=>"error"  
+            ];
+        }
+        return [
+            "updateType"=>"other",
+            "message"=>$line
+        ];
+    }
+    /**
+     * Hands over the rest of the line to the appropriate [tag] handler
+     * @param string $tag tag found
+     * @param string $rest rest of the line
+     * @return array the update that will be extracted
+     */
+    static function handleTag($tag, $rest)
+    {
+        switch(strtolower($tag))
+        {
+            case "download":
+            {
+                return self::handleDownload($rest);
+            }
+            case "info":
+            {
+                return self::handleInfo($rest);
+            }
+            // a hack. technically a [movefiles] can occur later.
+            // problems for later
+            case "movefiles":
+            {
+                self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="done";
+                self::$DOWNLOADER[self::$jobindex]['current']++;
+                return [
+                    "updateType"=>"done"
+                ];
+            }
+            // those are all postprocessing
+            case "merger":
+            case "modifychapters":
+            case "sponsorblock":
+            case "fixupm3u8":
+            case "metadata":
+            case "embedsubtitle":
+            case "hlsnative":
+            {
+                self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="processing";
+                return [
+                    "updateType"=>"processing"
+                ];
+            }
+            // assume anything else is a site name like youtube or reddit or hamster or something
+            default:
+            {
+                return self::handleProvider($tag);
+            }
+        }
+    }
+    /**
+     * Converts shortened names back into full numbers. Not sure why but...
+     * @param string $data a string like "640KiB"
+     * @return float something like 655360
+     */
+    static function getDataSize($data)
+    {
+        $muls=[
+            "i"=>0,
+            "K"=>1,
+            "M"=>2,
+            "G"=>3
+        ];
+        $num="";
+        $mul=0;
+        for($i=0;$i<strlen($data);$i++)
+        {
+            if($data[$i]!=="." && !is_numeric($data[$i]))
+            {
+                $mul=$muls[$data[$i]];
+                break;
+            }
+            $num.=$data[$i];
+        }
+        return floatval($num)*pow(1024,$mul);
+    }
+
+
+    /**
+     * Handles [download] tags, for progress
+     * @param type $line
+     * @return array progress update
+     */
+    static function handleDownload($line)
+    {
+        // frustratingly enough, the output has plenty of different formats
+        // 
+        // YT       67.5% of 1.51MiB at 11.63MiB/s ETA 01:12
+        // YT       67.5% of 1.51MiB at Unknown MiB/s ETA Unknown
+        // Others   67.5% of ~ 1.51MiB at 11.63MiB/s ETA 01:12 (frag 666/777)
+        // Subs?    1.01MiB at 11.63MiB/s (00:00:00)
+        // Complete 100% of  1.51MiB in 00:04:27 at 11.63MiB/s  
+        $line=trim(preg_replace('/[\s]+/', ' ', $line));
+        $pieces=explode(" ",$line);
+        $percent=0;
+        $filesize=0;
+        $speed=0;
+        $timeleft=0;
+        $complete=false;
+        if($pieces[0]==="100%")
+        {
+            $complete=true;
+        }
+        for($i=0;$i<count($pieces);$i++)
+        {
+            $piece=$pieces[$i];
+
+            // the "of" always follows percent and precedes full size
+            if($piece=="of")
+            {
+                $percent=floatval(str_replace("%","",$pieces[$i-1]));
+                if($pieces[$i+1]=="~")
+                {
+                    $filesize=getDataSize($pieces[$i+2]);
+                }
+                else
+                {
+                    $filesize=getDataSize($pieces[$i+1]);
+                }
+            }
+            // the "at" is before speed
+            if($piece=="at")
+            {
+                $speed=getDataSize(substr($pieces[$i+1],0,-2));
+            }
+            if($piece=="ETA")
+            {
+                $timeleft=$pieces[$i+1];
+            }
+        }
+        //self::SetJobProp("progress",$percent)
+        
+        $statechange=  [
+            "complete"=>$complete,
+            "percent"=>$percent,
+            "timeleft"=>$timeleft,
+            "filesize"=>$filesize,
+            "speed"=>$speed
+        ];
+        self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['progress']=$statechange;
+        self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="downloading";
+        $statechange['updateType']='progress';
+        return $statechange;
+    }
+    /**
+     * Parses the [Info] tags. Unfinished
+     * @param type $line
+     * @return string
+     */
+    static function handleInfo($line)
+    {
+        $results=[];
+        if(preg_match("Downloading ([0-9]+) format",$line,$results))
+        {
+            $data=[
+              "updateType"=>"dlcount",
+              "downloadcount"=>$results[1]
+            ];
+            return $data;
+        }
+    }
+    /**
+     * Handles any tag not specifically covered already, assuming it's the specific extractor/website
+     * @param type $provider
+     * @return array the update
+     */
+    static function handleProvider($provider)
+    {
+        $data=[
+            "updateType"=>"provider",
+            "provider"=>$provider
+        ];
+        self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['provider']=$provider;
+        return $data;
+    }
     
 }
 
@@ -38,300 +407,36 @@ function getJobIndex($jobid)
     return -1;
 }
 
-function handleLine($line)
-{
-    // find a tag first
-    $tag="";
-    if($line[0]=="[")
-    {
-        $rbracket=strpos($line,"]");
-        if($rbracket!==false)
-        {
-            $tag=substr($line,1,$rbracket-1);
-            $rest=substr($line,$rbracket+2);
-            return handleTag($tag,$rest);
-        }
-    }
-    return handleOther($line);
-}
 
-function handleOther($line)
-{
-    if(substr($line,0,5)=="ERROR")
-    {
-        return [
-          "updateType"=>"error"  
-        ];
-    }
-    return [
-        "updateType"=>"other",
-        "message"=>$line
-    ];
-}
 
-function handleTag($tag, $rest)
-{
-    switch(strtolower($tag))
-    {
-        case "download":
-        {
-            return handleDownload($rest);
-        }
-        case "info":
-        {
-            return handleInfo($rest);
-        }
-        case "metadata":
-        {
-            return [
-                "updateType"=>"done"
-            ];
-        }
-        case "merger":
-        case "modifychapters":
-        case "sponsorblock":
-        case "fixupm3u8":
-        case "movefiles":
-        case "embedsubtitle":
-        case "hlsnative":
-        {
-            return [
-                "updateType"=>"processing"
-            ];
-        }
-        default:
-        {
-            return handleProvider($tag);
-        }
-    }
-}
 
-function getDataSize($data)
-{
-    $muls=[
-        "i"=>0,
-        "K"=>1,
-        "M"=>2,
-        "G"=>3
-    ];
-    $num="";
-    $mul=0;
-    for($i=0;$i<strlen($data);$i++)
-    {
-        if($data[$i]!=="." && !is_numeric($data[$i]))
-        {
-            $mul=$muls[$data[$i]];
-            break;
-        }
-        $num.=$data[$i];
-    }
-    return floatval($num)*pow(1024,$mul);
-}
+  ///////////////////////////////////////////
+ //  LET THE MOTHERFUCKING GAMES BEGIN   ///
+///////////////////////////////////////////
 
-function handleDownload($line)
-{
-    // frustratingly enough, the output has plenty of different formats
-    // 
-    // YT       67.5% of 1.51MiB at 11.63MiB/s ETA 01:12
-    // YT       67.5% of 1.51MiB at Unknown MiB/s ETA Unknown
-    // Others   67.5% of ~ 1.51MiB at 11.63MiB/s ETA 01:12 (frag 666/777)
-    // Subs?    1.01MiB at 11.63MiB/s (00:00:00)
-    // Complete 100% of  1.51MiB in 00:04:27 at 11.63MiB/s  
-    $line=trim(preg_replace('/[\s]+/', ' ', $line));
-    $pieces=explode(" ",$line);
-    $percent=0;
-    $filesize=0;
-    $speed=0;
-    $timeleft=0;
-    $complete=false;
-    if($pieces[0]==="100%")
-    {
-        $complete=true;
-    }
-    for($i=0;$i<count($pieces);$i++)
-    {
-        $piece=$pieces[$i];
-        
-        // the "of" always follows percent and precedes full size
-        if($piece=="of")
-        {
-            $percent=floatval(str_replace("%","",$pieces[$i-1]));
-            if($pieces[$i+1]=="~")
-            {
-                $filesize=getDataSize($pieces[$i+2]);
-            }
-            else
-            {
-                $filesize=getDataSize($pieces[$i+1]);
-            }
-        }
-        // the "at" is before speed
-        if($piece=="at")
-        {
-            $speed=getDataSize(substr($pieces[$i+1],0,-2));
-        }
-        if($piece=="ETA")
-        {
-            $timeleft=$pieces[$i+1];
-        }
-    }
-    return [
-        "updateType"=>"progress",
-        "complete"=>$complete,
-        "percent"=>$percent,
-        "timeleft"=>$timeleft,
-        "filesize"=>$filesize,
-        "speed"=>$speed
-    ];
-}
 
-function handleInfo($line)
-{
-    $results=[];
-    if(preg_match("Downloading ([0-9]+) format",$line,$results))
-    {
-        $data=[
-          "updateType"=>"dlcount",
-          "downloadcount"=>$results[1]
-        ];
-        return $data;
-    }
-}
-function handleProvider($provider)
-{
-    $data=[
-        "updateType"=>"provider",
-        "provider"=>$provider
-    ];
-    return $data;
-}
 
-function getJobUpdates($index)
+
+if(isset($_POST['urls']))
 {
-    if(!isset($DOWNLOADER[$index]))
-    {
-        return [];
-    }
-    $jobid=$DOWNLOADER[$index]['jobid'];
-    $filename=$jobpath."/".$jobid;
-    // return an array of a single update saying yep that's gone ditch the whole thing
-    if(!file_exists($filename))
-    {
-        return [["jobid"=>$jobid, "updateType"=>"job_gone"]];
-    }
-    // get the file and prepare it for processing
-    $datafile=file_get_contents($filename);
-    $datafile=str_replace("\r","\n",$datafile);
-    $datafile=str_replace("\n\n","\n",$datafile);
-    $data=explode("\n",$datafile);
     
-    // keep track of which download of this job the previous line applied to
-    $current_vid=$DOWNLOADER[$index]['current']??0;
-    // as well as which lines were already processed
-    $linesreceived=$DOWNLOADER[$index]['lines']??0;
-    // go over every line
-    $out=[];
-    for($i=$linesreceived;$i<count($data);$i++)
-    {
-        // skip the empty line?   
-        if($data[$i]!="")
-        {
-            $update=handleLine($data[$i]);
-            $update['jobid']=$jobid;
-            $update['current']=$current_vid;
-            // only now skip to next if this was final step
-            if($update['updateType']=="done")
-            {
-                $current_vid++;
-            }
-            $out[]= $update;
-        }
-    }
-    // update the data 
-    $DOWNLOADER[$index]['current']=$current_vid;
-    $DOWNLOADER[$index]['lines']=count($data)-1;
+    $videos= YTDLP::extractJob($_POST['urls']);
+    $jobid=md5($_POST['urls'].time());
     
-    return $out;
-}
-
-function getAllJobs()
-{
-    $updates =[];
-    for($i=0;$i<count($DOWNLOADER);$i++)
-    {
-        array_merge($updates, getJobUpdates($i));
-    }
-    return $updates;
-}
-
-
-session_start();
-$yt_dl_base='yt-dlp --cache-dir .cache';
-$output_format ="%(title)s.%(ext)s";
-$yt_dl_temp_path="./tmp";
-$dl_dir_common='files';
-$dl_dir_mp3='mp3';
-$yt_dl_format_1080p=' -S res:1080,fps,+codec:avc:m4a ';
-$yt_dl_subs_yes=' --write-sub --write-auto-sub --sub-langs "en,no,no-nb,no-bm,ru,nl,nl-be" --embed-subs --compat-options no-keep-subs ';
-$yt_dl_pls_no_sponsor=' --sponsorblock-remove sponsor --sponsorblock-mark all,-filler ';
-$youtubedl_video_standard=$yt_dl_format_1080p.$yt_dl_pls_no_sponsor;
-$youtubemp3=" -x --audio-format mp3 ";
-$jobpath="jobs";
-$args=[];
-$args['tmp']=$yt_dl_temp_path;
-$args['out-tpl']=$output_format;
-/* 
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- * Click nbfs://nbhost/SystemFileSystem/Templates/Scripting/EmptyPHP.php to edit this template
- */
-
-if(isset($_GET['url']))
-{
-    $vlist=$_GET['url'];
-    $vlist=str_replace("\r","\n",$vlist);
-    $vlist=str_replace("\n\n","\n",$vlist);
-    $videos=explode("\n",$vlist);
-    $vlist="";
-    $videocount=0;
-    $videosaccepted=[];
-    // reject stuff like random bits and empty lines
-    foreach($videos as $video)
-    {
-        // drop any spaces and other fluff
-        $video=trim($video);
-        // reject anything too short to be a link
-        if(strlen($video)<10)
-        {
-            continue;
-        }
-        // might add support for pasting just youtube IDs later
-        if(substr($video,0,4)!="http")
-        {
-            continue;
-        }
-        if(true)//idk what to write here
-        {
-            
-        }
-        $videocount++;
-        $vlist.=(escapeshellarg($video)." ");
-        $videosaccepted[]=$video;
-    }
-    $jobid=md5($vlist.time());
-    //$_SESSION['jobid']=$jobid;
-    $mode=$_GET['mode']??"video";
+    $mode=$_POST['mode']??"video";
     
     
     
-    $args['tmp']="tmp:".$args['tmp'];
-    $yt_dl_mode=$youtubedl_video_standard;
-    $dl_dir=$dl_dir_common;
+    YTDLP::$args['tmp']="temp:".YTDLP::$args['tmp'];
+    $yt_dl_mode=YTDLP::$youtubedl_video_standard;
+    $dl_dir=YTDLP::$dl_dir_common;
+    
     switch($mode)
     {
         case "mp3":
         {
-            $yt_dl_mode=$youtubemp3;
-            $dl_dir=$dl_dir_mp3;
+            $yt_dl_mode=YTDLP::$youtubemp3;
+            $dl_dir=YTDLP::$dl_dir_mp3;
             break;
         }
         default:
@@ -339,50 +444,63 @@ if(isset($_GET['url']))
             $mode="video";
         }
     }
-    $args['out-path']="$dl_dir/$jobid";
+    YTDLP::$args['out-path']="$dl_dir/$jobid";
     
     @mkdir($args['out-path']);
     
     $argsflat="";
     
-    foreach($args as $name=>&$value)
+    foreach(YTDLP::$args as $name=>&$value)
     {
         $value= escapeshellarg($value);
     }//------------------------------------------------------  -o {$args['out-tpl']}
-    $cmd="$yt_dl_base -P {$args['tmp']} -P {$args['out-path']}  $yt_dl_mode -- $vlist > $jobpath/$jobid 2>&1 &";
+    $cmd=YTDLP::buildCMD($yt_dl_mode,$jobid,$videos);
+    
     $response=[
         "status"=>"started",
         "mode"=>$mode,
-        "vidcount"=>$videocount,
-        "list"=>$videosaccepted,
+        "vidcount"=>count($videos),
+        "list"=>$videos,
         "jobid"=>$jobid,
         "cmd"=>$cmd
     ];
-//    $cmd=$yt_dl_base.$dl_dir.$yt_dl_mode . $vlist . " > $jobpath/$jobid/progress.txt 2>&1 &";
-    session_write_close();
-    
+    $dlinfo=[
+        "current"=>0,
+        "lines"=>0,
+        "tasks"=>[]
+    ];
+    foreach($videos as $line)
+    {
+        $dlinfo['tasks'][]=[
+            "status"=>"waitng",
+            "provider"=>"unknown",
+            "progress"=>0
+        ];
+    }
+    YTDLP::$DOWNLOADER[]=$dlinfo;
     echo str_pad(json_encode($response),2048," ");
     flush();
     exec($cmd);
-    //session_start();
-    //echo "launched";
+    setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
     die();
     
 }
+
+setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
 // get progress on the specific job
 if(isset($_GET['info']))
 {
-    $jobid=$_GET['jobid'] ?? die();
-    echo getJobUpdates($jobid);
-    //echo "loading...";
+    echo json_encode(YTDLP::getAllJobs());
     die;
 }
 
-if(isset($_GET['listjobs']))
+if(isset($_GET['refresh']))
 {
-    echo getAllJobs();
-    die;
+    YTDLP::SendTheBigOne();
 }
+
+// only html  beyond this point
+
 ?><!doctype html>
 <html>
     <head>
