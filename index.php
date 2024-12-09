@@ -163,7 +163,7 @@ class YTDLP
         for($i=0;$i<count(self::$DOWNLOADER);$i++)
         {
             self::$jobindex=$i;
-            array_merge($updates, self::getJobUpdates($i));
+            $updates=array_merge($updates, self::getJobUpdates($i));
         }
         return $updates;
     }
@@ -268,6 +268,10 @@ class YTDLP
      */
     static function getDataSize($data)
     {
+        if($data=="Unkno")
+        {
+            return 0.0;
+        }
         $muls=[
             "i"=>0,
             "K"=>1,
@@ -324,17 +328,17 @@ class YTDLP
                 $percent=floatval(str_replace("%","",$pieces[$i-1]));
                 if($pieces[$i+1]=="~")
                 {
-                    $filesize=getDataSize($pieces[$i+2]);
+                    $filesize=self::getDataSize($pieces[$i+2]);
                 }
                 else
                 {
-                    $filesize=getDataSize($pieces[$i+1]);
+                    $filesize=self::getDataSize($pieces[$i+1]);
                 }
             }
             // the "at" is before speed
             if($piece=="at")
             {
-                $speed=getDataSize(substr($pieces[$i+1],0,-2));
+                $speed=self::getDataSize(substr($pieces[$i+1],0,-2));
             }
             if($piece=="ETA")
             {
@@ -363,7 +367,7 @@ class YTDLP
     static function handleInfo($line)
     {
         $results=[];
-        if(preg_match("Downloading ([0-9]+) format",$line,$results))
+        if(preg_match("|Downloading ([0-9]+) format|",$line,$results))
         {
             $data=[
               "updateType"=>"dlcount",
@@ -488,11 +492,13 @@ if(isset($_POST['urls']))
     
 }
 
-setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
+
 // get progress on the specific job
 if(isset($_GET['info']))
 {
-    echo json_encode(YTDLP::getAllJobs());
+    $jobs=YTDLP::getAllJobs();
+    setcookie("downloader",json_encode(YTDLP::$DOWNLOADER),time()+60*60*24*30);
+    echo json_encode($jobs);
     die;
 }
 
@@ -512,6 +518,7 @@ if(isset($_GET['refresh']))
         
         function CheckMoreData()
         {
+            console.log(window.ytdlp_done+">="+window.ytdlp_total);
             if(window.ytdlp_done>=window.ytdlp_total)
             {
                 window.clearInterval(window.refresher);
@@ -529,7 +536,7 @@ if(isset($_GET['refresh']))
                     if(ajax.status === 200)
                     {
                        handleUpdateList(JSON.parse(ajax.responseText));
-                       
+                       CheckMoreData();
                     }
                 }
             };
@@ -544,7 +551,7 @@ if(isset($_GET['refresh']))
                 return;
             }
                 
-            for(i=0;i<list.length;i++)
+            for(var i=0;i<list.length;i++)
             {
                 
                 handleUpdate(list[i]);
@@ -569,6 +576,7 @@ if(isset($_GET['refresh']))
             {
                 case "done":
                 {
+                    window.ytdlp_done++;
                     console.log(update);
                     var td=s.parentElement;
                     td.removeChild(s);
@@ -582,7 +590,7 @@ if(isset($_GET['refresh']))
                 }
                 case "error":
                 {
-                    
+                    window.ytdlp_done++;
                     console.log(update);
                     s.dataset.status="error";
                     p.dataset.progress="failed";
@@ -591,9 +599,11 @@ if(isset($_GET['refresh']))
                 }
                 case "progress":
                 {
+                    console.log(update);
                     s.dataset.status="downloading";
-                    p.dataset.progress=update.progress+"%";
-                    pn.dataset.progress=update.progress+"%";
+                    p.dataset.progress=update.percent;
+                    p.style.width=update.percent+"%";
+                    pn.dataset.progress=update.percent+"%";
                     break;
                 }
                 case "provider":
@@ -611,6 +621,7 @@ if(isset($_GET['refresh']))
         
         function StartRequestor()
         {
+            console.log("starting requestor");
             window.refresher=window.setInterval(RequestUpdate, 500);
             CheckMoreData();
         }
@@ -657,24 +668,30 @@ if(isset($_GET['refresh']))
         
         function doFullReload(jobs)
         {
+            console.log(jobs);
             var t=document.getElementById("status").getElementsByTagName('tbody')[0];
             t.innerHTML="";
             window.clearInterval(window.refresher);
             window.ytdlp_total=0;
             window.ytdlp_done=0;
-            for(i=0;i<jobs.length;i++)
+            for(var i=0;i<jobs.length;i++)
             {
+                console.log("job "+i);
                 DisplayJob(jobs[i]);
+                console.log("job "+i+" done");
             }
+            console.log("display done");
             StartRequestor();
         }
         
         function DisplayJob(job)
         {
+           
            console.log(job);
-           for(i=0;i<job.tasks.length;i++)
+           for(var i=0;i<job.tasks.length;i++)
             {
                 var taskid=job.jobid+i;
+                var task=job.tasks[i];
                 var t=document.getElementById("status").getElementsByTagName('tbody')[0];;
                 var tr=document.createElement("tr");
                 var td_type=document.createElement("td");
@@ -685,43 +702,49 @@ if(isset($_GET['refresh']))
                 tr.appendChild(td_status);
                 var provider_indicator=document.createElement("span");
                 provider_indicator.id='vid'+taskid;
-                provider_indicator.dataset.provider=job.provider;
+                provider_indicator.dataset.provider=task.provider;
+                provider_indicator.append("\xa0");
                 td_type.appendChild(provider_indicator);
                 var percent_container=document.createElement("div");
                 var percent_bar=document.createElement("span");
                 var percent_number=document.createElement("span");
+                percent_number.append("\xa0");
                 percent_bar.id='pro'+taskid;
                 percent_bar.className="progress";
-                percent_bar.style.width=job.progress+"%";
-                percent_bar.dataset.progress=job.progress;
+                percent_bar.style.width=task.progress.percent+"%";
+                percent_bar.dataset.progress=task.progress.percent;
                 percent_number.className="progressNumber";
                 percent_number.id='pron'+taskid;
                 percent_container.appendChild(percent_bar);
                 percent_container.appendChild(percent_number);
                 td_progress.appendChild(percent_container);
-                var status_icon=job.status==="done"?document.createElement("a"):document.createElement("span");
+                var status_icon=task.status==="done"?document.createElement("a"):document.createElement("span");
                 status_icon.id='stat'+taskid;
-                status_icon.dataset.status=job.status;
+                status_icon.dataset.status=task.status;
+                status_icon.append("\xa0");
                 td_status.appendChild(status_icon);
                 window.ytdlp_total++;
-                switch(job.status)
+                switch(task.status)
                 {
                     case "downloading":
                     {
-                        percent_bar.dataset.progress=job.progress;
+                        percent_bar.dataset.progress=task.progress.percent;
+                        percent_number.dataset.progress=task.progress.percent+"%";
                         break;
                     }
                     case "error":
                     {
                         window.ytdlp_done++;
                         percent_bar.dataset.progress="failed";
+                        percent_number.dataset.progress="failed";
                         break;
                     }
                     case "done":
                     {
                         window.ytdlp_done++;
-                        percent_bar.dataset.progress="100%";
-                        status_icon.href="index.php?dljob="+job.id+"&dlidx="+i;
+                        percent_bar.dataset.progress=task.progress.percent;
+                        percent_number.dataset.progress=task.progress.percent+"%";
+                        status_icon.href="index.php?dljob="+job.jobid+"&dlidx="+i;
                         break;
                     }
                     default:
@@ -766,7 +789,7 @@ if(isset($_GET['refresh']))
                 transition: width 0.5s;
                 content:" ";
             }
-            span.progressNumber
+            span.progressNumber::before
             {
                 position:absolute;
                 top:0;
@@ -779,50 +802,50 @@ if(isset($_GET['refresh']))
                 font-weight:bold;
                 content: attr(data-progress);
             }
-            [data-provider=youtube]
+            [data-provider=youtube]::before
             {
                 border-radius:3px;
                 content:'▶';
                 color:white;
                 background-color:red;
             }
-            [data-provider=xhamster]
+            [data-provider=xhamster]::before
             {
                 content: '🐹';
             }
-            [data-provider=pornhub]
+            [data-provider=pornhub]::before
             {
                 background-color: black;
                 color: orange;
                 content: 'PH';
             }
-            [data-provider=reddit]
+            [data-provider=reddit]::before
             {
                 content: '👽';
             }
             
-            [data-status=waiting]
+            [data-status=waiting]::before
             {
                 content: '⏳';
             }
-            [data-status=downloading]
+            [data-status=downloading]::before
             {
                 content: '♻';
             }
-            [data-status=processing]
+            [data-status=processing]::before
             {
                 content: '⚙';
             }
-            [data-status=done]
+            [data-status=done]::before
             {
                 content: '✔';
             }
-            [data-status=error]
+            [data-status=error]::before
             {
                 content: '❌';
             }
             
-            [data-progress=failed]
+            [data-progress=failed]::before
             {
                 min-width:50%;
                 background-color: red;
