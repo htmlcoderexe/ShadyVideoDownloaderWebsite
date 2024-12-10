@@ -41,6 +41,7 @@ class YTDLP
             self::$passhash=$config['pass'];
             self::$cache_dir=$config['cachepath'];
         }
+        return true;
     }
     static function SaveConfig()
     {
