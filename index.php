@@ -1,8 +1,11 @@
 <?php
+session_start();
 class YTDLP
 {
-    public static $yt_dl_base='yt-dlp --cache-dir .cache';
+    public static $yt_dl_base='yt-dlp';
     public static $output_format ="%(title)s.%(ext)s";
+    public static $cache_dir=".cache";
+    public static $removal_options=' --replace-in-metadata title "[\U00010000-\U0010ffff]" "" --replace-in-metadata title "&" "_" --replace-in-metadata title " " "_"';
     public static $yt_dl_temp_path="./tmp";
     public static $dl_dir_common='files';
     public static $dl_dir_mp3='mp3';
@@ -13,10 +16,45 @@ class YTDLP
     public static $youtubemp3=" -x --audio-format mp3 ";
     public static $jobpath="jobs";
     public static $args=[];
-
+    
+    public static $user="";
+    public static $passhash="";
+    
     public static $DOWNLOADER=[];
     
     static $jobindex=0;
+    
+    static function LoadConfig()
+    {
+        if(!file_exists(".dlconfig"))
+        {
+            return false;
+        }
+        else
+        {
+            $config=json_decode(file_get_contents(".dlconfig"),true);
+            self::$dl_dir_common=$config['videopath'];
+            self::$dl_dir_mp3=$config['musicpath'];
+            self::$yt_dl_temp_path=$config['temppath'];
+            self::$jobpath=$config['jobpath'];
+            self::$user=$config['user'];
+            self::$passhash=$config['pass'];
+            self::$cache_dir=$config['cachepath'];
+        }
+    }
+    static function SaveConfig()
+    {
+        $config=[
+            "videopath"=>self::$dl_dir_common,
+            "musicpath"=>self::$dl_dir_mp3,
+            "temppath"=>self::$yt_dl_temp_path,
+            "jobpath"=>self::$jobpath,
+            "cachepath"=>self::$cache_dir,
+            "user"=>self::$user,
+            "pass"=>self::$passhash
+        ];
+        file_put_contents(".dlconfig", json_encode($config));
+    }
     
     static function SaveDownloader()
     {
@@ -99,17 +137,30 @@ class YTDLP
     {
         $vlist_args=implode(" ",array_map("escapeshellarg",$vlist));
         
-        $cmd="";
+        $cmd_prefix="";
+        $cmd_postfix=" &";
+        // TODO: add a windows check here and alter the above to "start /b " and "" respectively
+        $windows=false;
+        if($windows)
+        {
+            $cmd_prefix="start /b ";
+            $cmd_postfix="";
+        }
+        
+        $cmd=$cmd_prefix;
         
         $cmd.=self::$yt_dl_base;
+        $cmd.=" --cache-dir ";
+        $cmd.=escapeshellarg(self::$cache_dir);
         $cmd.=" -P ".self::$args['tmp'];
         $cmd.=" -P ".self::$args['out-path'];
         $cmd.=$dl_mode;
+        $cmd.=self::$removal_options;
         $cmd.=" -- ";
         $cmd.=$vlist_args;
         $cmd.="> ".self::$jobpath."/$jobid 2>&1";
         
-        $cmd.=" &";
+        $cmd.=$cmd_postfix;
         
         return $cmd;
     }
@@ -443,19 +494,134 @@ class YTDLP
         return -1;
     }
 }
+
+
+function ShowConfigurator()
+{
+    ?><!doctype html>
+<html>
+    <head>
+        <title>YT-DLP Configuration Page</title>
+    </head>
+    <body>
+        <p>This is the first time this application has been run, please complete setup.</p>
+        <form action="index.php" method="POST">
+            Video path:<input name="videopath" value="<?php echo YTDLP::$dl_dir_common;?>" /><br />
+            Music path:<input name="musicpath" value="<?php echo YTDLP::$dl_dir_mp3;?>"  /><br />
+            Job file path:<input name="jobpath" value="<?php echo YTDLP::$jobpath;?>"  /><br />
+            Temp path:<input name="tempopath" value="<?php echo YTDLP::$yt_dl_temp_path;?>"  /><br />
+            Cache Path:<input name="cachepath" value="<?php echo YTDLP::$cache_dir;?>"  /><br />
+            Username (leave blank to disable login):<input name="username" value="<?php echo YTDLP::$user;?>"  /><br />
+            Password (leave blank to keep the same):<input name="password" type="password"/><br />
+            <button type="submit">Save</button>
+        </form>
+    </body>
+</html>
+<?php
+}
+
+function ShowLogin($error="")
+{
+    ?><!doctype html>
+<html>
+    <head>
+        <title>Log in</title>
+    </head>
+    <body>
+        <h3><?php echo $error; ?></h3>
+        <form action="index.php?login" method="GET">
+        Username:<input name="username" /><br />
+        Password:<input name="password" type="password"><br />
+        <button type="submit">Log in</button>
+        </form>
+    </body>
+</html>
+<?php
+}
+
+
+// get a hash if creating a pre-made file
+if(isset($_GET['password']))
+{
+    echo password_hash($_GET['password']);
+    die;
+}
+
+
+
+
+
+
+
+  ///////////////////////////////////////////\
+ //  LET THE MOTHERFUCKING GAMES BEGIN   ////\\
+////////////////////////////////////////////__\\
+
+
+
+
+if(!YTDLP::LoadConfig())
+{
+    if(!isset($_POST['videopath']))
+    {
+        ShowConfigurator();
+        die;
+    }
+    else
+    {
+        // i mean yeah but 
+        // 1) if you run php as root you deserve everything that happens
+        // 2) don't open your unconfigured app to the public
+        // 3) it's a one-time thing (and you can include a premade file)
+        YTDLP::$dl_dir_common=$_POST['videopath'];
+        YTDLP::$dl_dir_mp3=$_POST['musicpath'];
+        YTDLP::$jobpath=$_POST['jobpath'];
+        YTDLP::$yt_dl_temp_path=$_POST['tempopath'];
+        YTDLP::$cache_dir=$_POST['cachepath'];
+        if($_POST['username']!=="")
+        {
+            YTDLP::$user=$_POST['username'];
+        }
+        if($_POST['password']!=="")
+        {
+            YTDLP::$passhash=password_hash($_POST['password']);
+        }
+        YTDLP::SaveConfig();
+    }
+}
+
+
 YTDLP::Init();
 
+if(isset($_GET['logout']))
+{
+    unset($_SESSION['user']);
+}
 
 
+// if username was set blank, don't ask auth
+if(YTDLP::$user!=="" && !isset($_SESSION['user']))
+{
+    ShowLogin();
+    die;
+}
+// login attemptss >:3
+if(isset($_GET['login']))
+{
+    $user=$_POST['username'];
+    $pass=password_verify($_POST['password'],YTDLP::$passhash);
+    if($pass && $user===YTDLP::$user)
+    {
+        $_SESSION['user']=$user;
+    }
+    else
+    {
+        ShowLogin("haha nope");
+        die;
+    }
+}
 
-
-  ///////////////////////////////////////////
- //  LET THE MOTHERFUCKING GAMES BEGIN   ///
-///////////////////////////////////////////
-
-
-
-
+// the regular stuff as scheduled
 if(isset($_POST['urls']))
 {
     
