@@ -85,13 +85,31 @@ class YTDLP
         }
     }
     
+    static function SetupDir($dirname)
+    {
+        if(!file_exists($dirname))
+        {
+            mkdir($dirname);
+        }
+        
+        return(file_exists($dirname));
+    }
+    
     static function Init()
     {
+        $dirs_present=false;
+        $dirs_present=$dirs_present or self::SetupDir(self::$dl_dir_common);
+        $dirs_present=$dirs_present or self::SetupDir(self::$dl_dir_mp3);
+        $dirs_present=$dirs_present or self::SetupDir(self::$yt_dl_temp_path);
+        $dirs_present=$dirs_present or self::SetupDir(self::$jobpath);
+        $dirs_present=$dirs_present or self::SetupDir(self::$cache_dir);        
+        
         self::$youtubedl_video_standard=self::$yt_dl_format_1080p.self::$yt_dl_pls_no_sponsor;
         
         self::$args['tmp']=self::$yt_dl_temp_path;
         self::$args['out-tpl']=self::$output_format;
         self::LoadDownloader();
+        return $dirs_present;
     }
     /**
      * Gets a list of useable URLs out of user submitted junk
@@ -592,7 +610,13 @@ if(!YTDLP::LoadConfig())
 }
 
 
-YTDLP::Init();
+if(!YTDLP::Init())
+{
+    ?>
+<h2>We had issue with setting up the directories.</h2>
+<?php
+die;
+}
 
 if(isset($_GET['logout']))
 {
@@ -724,9 +748,13 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
         $path.=$dlidx;
         if(file_exists($path))
         {
-            //header("Content-Type: ".$mode==="mp3"?"audio/mp3":"video/mp4");
-            //fpassthru()
-            header("Location: ".$path);
+            $ctype=($mode==="mp3")?"audio/mp3":"video/mp4";
+            header("Content-Disposition: attachment; filename="+$dlidx);
+            header("Content-Type: ".$ctype);
+            header("Content-Length: ".filesize($path));
+            $file=fopen($path,"r");
+            fpassthru($file);
+            fclose($file);
             die;
         }
     }
