@@ -101,7 +101,7 @@ class YTDLP
         foreach($worker as $job)
         {
             $fn=$job->getFilename();
-            if(subst($fn,-4)!==".job")
+            if(substr($fn,-4)!==".job")
             {
                 if($job->getCTime()<$cutoff)
                 {
@@ -114,22 +114,22 @@ class YTDLP
     
     static function NukeJob($jobid)
     {
-        unlink(self::$jobpath . "/" . $jobid);
-        unlink(self::$jobpath . "/" . $jobid.".job");
+        @unlink(self::$jobpath . "/" . $jobid);
+        @unlink(self::$jobpath . "/" . $jobid.".job");
         
         $remover=new FilesystemIterator(self::$dl_dir_common."/".$jobid);
         foreach($remover as $item)
         {
-            unlink(self::$dl_dir_common."/".$jobid."/".$item->getFilename());
+            @unlink(self::$dl_dir_common."/".$jobid."/".$item->getFilename());
         }
-        unlink(self::$dl_dir_common."/".$jobid);
+        @unlink(self::$dl_dir_common."/".$jobid);
         
         $remover=new FilesystemIterator(self::$dl_dir_mp3."/".$jobid);
         foreach($remover as $item)
         {
-            unlink(self::$dl_dir_mp3."/".$jobid."/".$item->getFilename());
+            @unlink(self::$dl_dir_mp3."/".$jobid."/".$item->getFilename());
         }
-        unlink(self::$dl_dir_mp3."/".$jobid);
+        @unlink(self::$dl_dir_mp3."/".$jobid);
     }
     
     static function SetupDir($dirname)
@@ -156,6 +156,8 @@ class YTDLP
         
         self::$args['tmp']=self::$yt_dl_temp_path;
         self::$args['out-tpl']=self::$output_format;
+        
+        self::FetchStaleJobs();
         self::LoadDownloader();
         return $dirs_present;
     }
