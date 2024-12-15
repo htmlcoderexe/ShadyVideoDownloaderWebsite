@@ -1,5 +1,6 @@
 <?php
 session_start();
+setlocale(LC_ALL,'C.UTF-8');
 class YTDLP
 {
     public static $config_file=".dlconfig";
@@ -122,14 +123,14 @@ class YTDLP
         {
             @unlink(self::$dl_dir_common."/".$jobid."/".$item->getFilename());
         }
-        @unlink(self::$dl_dir_common."/".$jobid);
+        @rmdir(self::$dl_dir_common."/".$jobid);
         
         $remover=new FilesystemIterator(self::$dl_dir_mp3."/".$jobid);
         foreach($remover as $item)
         {
             @unlink(self::$dl_dir_mp3."/".$jobid."/".$item->getFilename());
         }
-        @unlink(self::$dl_dir_mp3."/".$jobid);
+        @rmdir(self::$dl_dir_mp3."/".$jobid);
     }
     
     static function SetupDir($dirname)
@@ -222,7 +223,7 @@ class YTDLP
         $cmd.=" --cache-dir ";
         $cmd.=escapeshellarg(self::$cache_dir);
         $cmd.=" -P ".self::$args['tmp'];
-        $cmd.=" -P ".self::$args['out-path'];
+        $cmd.=" -o ".self::$args['out-path']."/".escapeshellarg(self::$output_format);
         $cmd.=$dl_mode;
         $cmd.=self::$removal_options;
         $cmd.=" -- ";
