@@ -455,6 +455,7 @@ class YTDLP
         self::$DOWNLOADER[self::$jobindex]['current']++;
         return [
             "updateType"=>"done",
+            "index"=>intval(self::$DOWNLOADER[self::$jobindex]['current'])-1,
             "filename"=>$fname
         ];
     }
@@ -872,23 +873,26 @@ if(isset($_GET['refresh']))
 if(isset($_GET['dljob']) && isset($_GET['dlidx']))
 {
     $dljobid=$_GET['dljob'];
-    $dlidx=basename($_GET['dlidx']);
+    $dlidx=intval($_GET['dlidx']);
     $force_dl=isset($_GET['force']);
     if(YTDLP::getJobIndex($dljobid)!==-1)
     {
-        $mode="";
         $path="";
+        $job=YTDLP::$DOWNLOADER[YTDLP::getJobIndex($dljobid)]??die("job not found");
+        $task=$job['tasks'][$dlidx]??die("task not found");
+        $mode=$task['mode']??die("mode not found");
+        $fname=$task['filename']??die("filename not found");
         $path.=$mode==="mp3"?YTDLP::$dl_dir_mp3:YTDLP::$dl_dir_common;
         $path.="/";
         $path.=$dljobid;
         $path.="/";
-        $path.=$dlidx;
+        $path.=$fname;
         if(file_exists($path))
         {
             $ctype=($mode==="mp3")?"audio/mp3":"video/mp4";
             if($force_dl)
             {
-                header("Content-Disposition: attachment; filename=\"".rawurlencode($dlidx)."\"");
+                header("Content-Disposition: attachment; filename=\"".rawurlencode($fname)."\"");
             }
             
             header("Content-Type: ".$ctype);
@@ -898,7 +902,9 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
             fclose($file);
             die;
         }
+        die("file not found");
     }
+    die("job not found");
 }
 
 // only html  beyond this point
@@ -978,10 +984,10 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
                     s=document.createElement("a");
                     s.id='stat'+taskid;
                     s.dataset.status="done";
-                    s.href="index.php?dljob="+update.jobid+"&dlidx="+encodeURIComponent(update.filename);
+                    s.href="index.php?dljob="+update.jobid+"&dlidx="+update.index;
                     td.appendChild(s);
                     var forcelink=document.createElement("a");
-                    forcelink.href="index.php?force=true&dljob="+update.jobid+"&dlidx="+encodeURIComponent(update.filename);
+                    forcelink.href="index.php?force=true&dljob="+update.jobid+"&dlidx="+update.index;
                     forcelink.append(" ⬇ ");
                     td.appendChild(forcelink);
                     break;
@@ -1142,9 +1148,9 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
                         window.ytdlp_done++;
                         percent_bar.dataset.progress=task.progress.percent;
                         percent_number.dataset.progress=task.progress.percent+"%";
-                        status_icon.href="index.php?dljob="+job.jobid+"&dlidx="+encodeURIComponent(task.filename);
+                        status_icon.href="index.php?dljob="+job.jobid+"&dlidx="+i;
                         var forcelink=document.createElement("a");
-                        forcelink.href="index.php?force=true&dljob="+job.jobid+"&dlidx="+encodeURIComponent(task.filename);
+                        forcelink.href="index.php?force=true&dljob="+job.jobid+"&dlidx="+i;
                         forcelink.append(" ⬇ ");
                         td_status.appendChild(forcelink);
                         break;
