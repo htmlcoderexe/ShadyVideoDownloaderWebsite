@@ -2,6 +2,8 @@
 session_start();
 class YTDLP
 {
+    public static $config_file=".dlconfig";
+    
     public static $yt_dl_base='yt-dlp';
     public static $output_format ="%(title)s.%(ext)s";
     public static $cache_dir=".cache";
@@ -17,6 +19,9 @@ class YTDLP
     public static $jobpath="jobs";
     public static $args=[];
     
+    public static $erase_pass="";
+    public static $job_ttl=120;
+    
     public static $user="";
     public static $passhash="";
     
@@ -26,7 +31,7 @@ class YTDLP
     
     static function LoadConfig()
     {
-        if(!file_exists(".dlconfig"))
+        if(!file_exists(self::$config_file))
         {
             return false;
         }
@@ -40,6 +45,8 @@ class YTDLP
             self::$user=$config['user'];
             self::$passhash=$config['pass'];
             self::$cache_dir=$config['cachepath'];
+            self::$job_ttl=$config['job_ttl'];
+            self::$erase_pass=$config['erase_pass'];
         }
         return true;
     }
@@ -52,7 +59,9 @@ class YTDLP
             "jobpath"=>self::$jobpath,
             "cachepath"=>self::$cache_dir,
             "user"=>self::$user,
-            "pass"=>self::$passhash
+            "pass"=>self::$passhash,
+            "erase_pass"=>self::$erase_pass,
+            "job_ttl"=>self::$job_ttl
         ];
         file_put_contents(".dlconfig", json_encode($config));
     }
@@ -87,23 +96,24 @@ class YTDLP
     
     static function SetupDir($dirname)
     {
+        clearstatcache();
         if(!file_exists($dirname))
         {
             mkdir($dirname);
         }
-        
-        return(file_exists($dirname));
+        clearstatcache();
+        $success=file_exists($dirname);
+        return($success);
     }
     
     static function Init()
     {
         $dirs_present=false;
-        $dirs_present=$dirs_present or self::SetupDir(self::$dl_dir_common);
-        $dirs_present=$dirs_present or self::SetupDir(self::$dl_dir_mp3);
-        $dirs_present=$dirs_present or self::SetupDir(self::$yt_dl_temp_path);
-        $dirs_present=$dirs_present or self::SetupDir(self::$jobpath);
-        $dirs_present=$dirs_present or self::SetupDir(self::$cache_dir);        
-        
+        $dirs_present=$dirs_present || self::SetupDir(self::$dl_dir_common);
+        $dirs_present=$dirs_present || self::SetupDir(self::$dl_dir_mp3);
+        $dirs_present=$dirs_present || self::SetupDir(self::$yt_dl_temp_path);
+        $dirs_present=$dirs_present || self::SetupDir(self::$jobpath);
+        $dirs_present=$dirs_present || self::SetupDir(self::$cache_dir);    
         self::$youtubedl_video_standard=self::$yt_dl_format_1080p.self::$yt_dl_pls_no_sponsor;
         
         self::$args['tmp']=self::$yt_dl_temp_path;
@@ -531,7 +541,8 @@ function ShowConfigurator()
             Temp path:<input name="tempopath" value="<?php echo YTDLP::$yt_dl_temp_path;?>"  /><br />
             Cache Path:<input name="cachepath" value="<?php echo YTDLP::$cache_dir;?>"  /><br />
             Username (leave blank to disable login):<input name="username" value="<?php echo YTDLP::$user;?>"  /><br />
-            Password (leave blank to keep the same):<input name="password" type="password"/><br />
+            Password (leave blank to keep the same):<input name="password" type="password" /><br />
+            Reset configuration password:<input name="erase_password" type="password" /><br />
             <button type="submit">Save</button>
         </form>
     </body>
@@ -548,9 +559,9 @@ function ShowLogin($error="")
     </head>
     <body>
         <h3><?php echo $error; ?></h3>
-        <form action="index.php?login" method="GET">
+        <form action="index.php?login" method="POST">
         Username:<input name="username" /><br />
-        Password:<input name="password" type="password"><br />
+        Password:<input name="password" type="password" /><br />
         <button type="submit">Log in</button>
         </form>
     </body>
@@ -559,10 +570,44 @@ function ShowLogin($error="")
 }
 
 
+function ConfirmErase($error="")
+{
+     ?><!doctype html>
+<html>
+    <head>
+        <title>Erase configuration</title>
+    </head>
+    <body>
+        <h3>Erase configuration</h3>
+        <h2 style="color:red"><?php echo $error; ?></h2>
+        <?php
+            if(YTDLP::$erase_pass!="")
+            {
+        ?>
+        <p>Enter the "Reset configuration password" you have configured to erase the configuration file and reset all settings.</p>
+        <form action="index.php?reset" method="POST">
+        <input name="erase_password" type="password" /><br />
+        <button type="submit">Erase configuration file</button>
+        </form>
+        <?php
+            }
+            else
+            {
+        ?>
+        <p>The "Erase configuration" feature is disabled because the "Reset configuration password" has not been set.</p>
+        <?php
+            }
+        ?>
+        <p><a href="index.php">Return</a></p>
+    </body>
+</html>
+<?php
+}
+
 // get a hash if creating a pre-made file
 if(isset($_GET['password']))
 {
-    echo password_hash($_GET['password']);
+    echo password_hash($_GET['password'], PASSWORD_DEFAULT);
     die;
 }
 
@@ -603,9 +648,42 @@ if(!YTDLP::LoadConfig())
         }
         if($_POST['password']!=="")
         {
-            YTDLP::$passhash=password_hash($_POST['password']);
+            YTDLP::$passhash=password_hash($_POST['password'], PASSWORD_DEFAULT);
+        }
+        if($_POST['erase_password']!=="")
+        {
+            YTDLP::$erase_pass=password_hash($_POST['erase_password'], PASSWORD_DEFAULT);
         }
         YTDLP::SaveConfig();
+    }
+}
+
+if(isset($_GET['reset']))
+{
+    if(YTDLP::$erase_pass=="")
+    {
+        ConfirmErase();
+        die;
+    }
+    
+    if(isset($_POST['erase_password']))
+    {
+        if(password_verify($_POST['erase_password'],YTDLP::$erase_pass))
+        {
+            unlink(YTDLP::$config_file);
+            header("Location: index.php");
+            die;
+        }
+        else
+        {
+            ConfirmErase("Error: incorrect password.");
+            die;
+        }
+    }
+    else
+    {
+        ConfirmErase();
+            die;
     }
 }
 
@@ -618,18 +696,14 @@ if(!YTDLP::Init())
 die;
 }
 
+
+
 if(isset($_GET['logout']))
 {
     unset($_SESSION['user']);
 }
 
 
-// if username was set blank, don't ask auth
-if(YTDLP::$user!=="" && !isset($_SESSION['user']))
-{
-    ShowLogin();
-    die;
-}
 // login attemptss >:3
 if(isset($_GET['login']))
 {
@@ -640,10 +714,19 @@ if(isset($_GET['login']))
         $_SESSION['user']=$user;
     }
     else
-    {
+    {   print_r($_POST);
+        print_r($_SESSION);
+        print_r((array)YTDLP::$user);
+        print_r((array)YTDLP::$passhash);
         ShowLogin("haha nope");
         die;
     }
+}
+// if username was set blank, don't ask auth
+if(YTDLP::$user!=="" && !isset($_SESSION['user']))
+{
+    ShowLogin();
+    die;
 }
 
 // the regular stuff as scheduled
@@ -1117,7 +1200,7 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
     <body><form id="controls">
             <input type="radio" name="format" id="sel-video" value="video" checked /><label for="sel-video">Video 1080p</label>
             <input type="radio" name="format" id="sel-mp3" value="mp3" /><label for="sel-mp3">MP3</label>
-            <textarea id="url" style="width:100%;height:50vh" ></textarea><button onclick="getVideo();" type="button">go</button></form><br />
+            <textarea id="url" style="width:100%;height:36vh" ></textarea><button onclick="getVideo();" type="button">go</button></form><br />
             <div id="infohearder">
                 <span id="vidcount"></span> <span id="jobid"></span> <span id="mode"></span>
             </div>
