@@ -87,9 +87,9 @@ class YTDLP
         $joblist=json_decode(stripslashes($_COOKIE['jobs']),true);
         foreach($joblist as $job)
         {
-            if(file_exists(self::$jobpath."/".$job.".job"))
+            if(file_exists(self::$jobpath."/".basename($job).".job"))
             {
-                self::$DOWNLOADER[]=json_decode(file_get_contents(self::$jobpath."/".$job.".job"),true);
+                self::$DOWNLOADER[]=json_decode(file_get_contents(self::$jobpath."/".basename($job).".job"),true);
             }
         }
     }
