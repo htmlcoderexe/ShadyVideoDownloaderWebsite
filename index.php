@@ -117,20 +117,26 @@ class YTDLP
     {
         @unlink(self::$jobpath . "/" . $jobid);
         @unlink(self::$jobpath . "/" . $jobid.".job");
-        
-        $remover=new FilesystemIterator(self::$dl_dir_common."/".$jobid);
-        foreach($remover as $item)
+        if(file_exists(self::$dl_dir_common."/".$jobid))
         {
-            @unlink(self::$dl_dir_common."/".$jobid."/".$item->getFilename());
-        }
+            $remover=new FilesystemIterator(self::$dl_dir_common."/".$jobid);
+            foreach($remover as $item)
+            {
+                @unlink(self::$dl_dir_common."/".$jobid."/".$item->getFilename());
+            }
         @rmdir(self::$dl_dir_common."/".$jobid);
-        
-        $remover=new FilesystemIterator(self::$dl_dir_mp3."/".$jobid);
-        foreach($remover as $item)
-        {
-            @unlink(self::$dl_dir_mp3."/".$jobid."/".$item->getFilename());
+        @rmdir(self::$yt_dl_temp_path."/".self::$dl_dir_common."/".$jobid);
         }
+        if(file_exists(self::$dl_dir_mp3."/".$jobid))
+        {
+            $remover=new FilesystemIterator(self::$dl_dir_mp3."/".$jobid);
+            foreach($remover as $item)
+            {
+                @unlink(self::$dl_dir_mp3."/".$jobid."/".$item->getFilename());
+            }
         @rmdir(self::$dl_dir_mp3."/".$jobid);
+        @rmdir(self::$yt_dl_temp_path."/".self::$dl_dir_mp3."/".$jobid);
+        }
     }
     
     static function SetupDir($dirname)
