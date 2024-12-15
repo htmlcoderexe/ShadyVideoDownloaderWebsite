@@ -71,7 +71,7 @@ class YTDLP
         $jobs=[];
         foreach(self::$DOWNLOADER as $jobinfo)
         {
-            setcookie("job_".$jobinfo['jobid'],json_encode($jobinfo),time()+60*60*24*30);
+            file_put_contents(self::$jobpath."/".$jobinfo['jobid'].".job",json_encode($jobinfo));
             $jobs[]=$jobinfo['jobid'];
         }
         setcookie("jobs",json_encode($jobs),time()+60*60*24*30);
@@ -82,16 +82,54 @@ class YTDLP
         if(!isset($_COOKIE['jobs']))
         {
             self::$DOWNLOADER=[];
-            setcookie("jobs",json_encode(self::$DOWNLOADER),time()+60*60*24*30);
+            setcookie("jobs",json_encode([]),time()+60*60*24*30);
         }
         $joblist=json_decode(stripslashes($_COOKIE['jobs']),true);
         foreach($joblist as $job)
         {
-            if(isset($_COOKIE['job_'.$job]))
+            if(file_exists(self::$jobpath."/".$job.".job"))
             {
-                self::$DOWNLOADER[]=json_decode(stripslashes($_COOKIE['job_'.$job]),true);
+                self::$DOWNLOADER[]=json_decode(file_get_contents(self::$jobpath."/".$job.".job"),true);
             }
         }
+    }
+    
+    static function FetchStaleJobs()
+    {
+        $worker=new FilesystemIterator(self::$jobpath);
+        $cutoff=time()-(self::$job_ttl*60);
+        foreach($worker as $job)
+        {
+            $fn=$job->getFilename();
+            if(subst($fn,-4)!==".job")
+            {
+                if($job->getCTime()<$cutoff)
+                {
+                    self::NukeJob($fn);
+                }
+                
+            }
+        }
+    }
+    
+    static function NukeJob($jobid)
+    {
+        unlink(self::$jobpath . "/" . $jobid);
+        unlink(self::$jobpath . "/" . $jobid.".job");
+        
+        $remover=new FilesystemIterator(self::$dl_dir_common."/".$jobid);
+        foreach($remover as $item)
+        {
+            unlink(self::$dl_dir_common."/".$jobid."/".$item->getFilename());
+        }
+        unlink(self::$dl_dir_common."/".$jobid);
+        
+        $remover=new FilesystemIterator(self::$dl_dir_mp3."/".$jobid);
+        foreach($remover as $item)
+        {
+            unlink(self::$dl_dir_mp3."/".$jobid."/".$item->getFilename());
+        }
+        unlink(self::$dl_dir_mp3."/".$jobid);
     }
     
     static function SetupDir($dirname)
@@ -342,6 +380,7 @@ class YTDLP
             case "sponsorblock":
             case "fixupm3u8":
             case "metadata":
+            case "metadataparser":
             case "embedsubtitle":
             case "hlsnative":
             {
@@ -1138,12 +1177,20 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
                 font-weight:bold;
                 content: attr(data-progress);
             }
+            [data-provider]::before
+            {
+                content:"?";
+            }
             [data-provider=youtube]::before
             {
                 border-radius:3px;
                 content:'▶';
                 color:white;
                 background-color:red;
+                padding:3px;
+                padding-left:10px;
+                padding-right:10px;
+                
             }
             [data-provider=xhamster]::before
             {
@@ -1194,6 +1241,27 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
             {
                 position:relative;
                 height:3em;
+            }
+            #infoheader
+            {
+                font-size:2em;
+            }
+            #vicount::before
+            {
+                content:"Videos: ";
+            }
+            #jobid::before
+            {
+                content:"Job ID: ";
+            }
+            #mode
+            {
+                font-variant: small-caps;
+                font-family: monospace;
+            }
+            #mode::before
+            {
+                content:"Mode: ";
             }
         </style>
     </head>
