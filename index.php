@@ -8,12 +8,11 @@ class YTDLP
     public static $yt_dl_base='yt-dlp';
     public static $output_format ="%(title)s.%(ext)s";
     public static $cache_dir=".cache";
-    public static $removal_options=' --replace-in-metadata title "[\U00010000-\U0010ffff]" "" --replace-in-metadata title "&" "_" --replace-in-metadata title " " "_"';
-    public static $yt_dl_temp_path="./tmp";
-    public static $dl_dir_common='files';
+    public static $removal_options=' --replace-in-metadata title "[\U00010000-\U0010ffff]" "" --replace-in-metadata title "&" "_" --replace-in-metadata title "," "_" --replace-in-metadata title "=" "_" --replace-in-metadata title " " "_"';
+    public static $yt_dl_temp_path="tmp";
+    public static $dl_dir_common='mp4';
     public static $dl_dir_mp3='mp3';
     public static $yt_dl_format_1080p=' -S res:1080,fps,+codec:avc:m4a ';
-    public static $yt_dl_subs_yes=' --write-sub --write-auto-sub --sub-langs "en,no,no-nb,no-bm,ru,nl,nl-be" --embed-subs --compat-options no-keep-subs ';
     public static $yt_dl_pls_no_sponsor=' --sponsorblock-remove sponsor --sponsorblock-mark all,-filler ';
     public static $youtubedl_video_standard;
     public static $youtubemp3=" -x --audio-format mp3 ";
@@ -78,6 +77,11 @@ class YTDLP
         setcookie("jobs",json_encode($jobs),time()+60*60*24*30);
     }
     
+    static function LoadJob($jobid)
+    {
+        return json_decode(file_get_contents(self::$jobpath."/".basename($jobid).".job"),true);
+    }
+    
     static function LoadDownloader()
     {
         if(!isset($_COOKIE['jobs']))
@@ -90,7 +94,7 @@ class YTDLP
         {
             if(file_exists(self::$jobpath."/".basename($job).".job"))
             {
-                self::$DOWNLOADER[]=json_decode(file_get_contents(self::$jobpath."/".basename($job).".job"),true);
+                self::$DOWNLOADER[]=self::LoadJob($job);
             }
         }
     }
@@ -588,6 +592,7 @@ function ShowConfigurator()
             Job file path:<input name="jobpath" value="<?php echo YTDLP::$jobpath;?>"  /><br />
             Temp path:<input name="tempopath" value="<?php echo YTDLP::$yt_dl_temp_path;?>"  /><br />
             Cache Path:<input name="cachepath" value="<?php echo YTDLP::$cache_dir;?>"  /><br />
+            Time to keep downloaded files, minutes:<input name="job_ttl" value="<?php echo YTDLP::$job_ttl;?>"  /><br />
             Username (leave blank to disable login):<input name="username" value="<?php echo YTDLP::$user;?>"  /><br />
             Password (leave blank to keep the same):<input name="password" type="password" /><br />
             Reset configuration password:<input name="erase_password" type="password" /><br />
@@ -690,6 +695,7 @@ if(!YTDLP::LoadConfig())
         YTDLP::$jobpath=$_POST['jobpath'];
         YTDLP::$yt_dl_temp_path=$_POST['tempopath'];
         YTDLP::$cache_dir=$_POST['cachepath'];
+        YTDLP::$job_ttl=$_POST['job_ttl'];
         if($_POST['username']!=="")
         {
             YTDLP::$user=$_POST['username'];
@@ -703,6 +709,8 @@ if(!YTDLP::LoadConfig())
             YTDLP::$erase_pass=password_hash($_POST['erase_password'], PASSWORD_DEFAULT);
         }
         YTDLP::SaveConfig();
+        header("Location: index.php");
+        die;
     }
 }
 
@@ -762,10 +770,7 @@ if(isset($_GET['login']))
         $_SESSION['user']=$user;
     }
     else
-    {   print_r($_POST);
-        print_r($_SESSION);
-        print_r((array)YTDLP::$user);
-        print_r((array)YTDLP::$passhash);
+    {   
         ShowLogin("haha nope");
         die;
     }
@@ -835,7 +840,7 @@ if(isset($_POST['urls']))
     {
         $dlinfo['tasks'][]=[
             "mode"=>$mode,
-            "status"=>"waitng",
+            "status"=>"waiting",
             "provider"=>"unknown",
             "progress"=>0
         ];
@@ -868,6 +873,7 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
 {
     $dljobid=$_GET['dljob'];
     $dlidx=basename($_GET['dlidx']);
+    $force_dl=isset($_GET['force']);
     if(YTDLP::getJobIndex($dljobid)!==-1)
     {
         $mode="";
@@ -880,7 +886,11 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
         if(file_exists($path))
         {
             $ctype=($mode==="mp3")?"audio/mp3":"video/mp4";
-            header("Content-Disposition: attachment; filename="+$dlidx);
+            if($force_dl)
+            {
+                header("Content-Disposition: attachment; filename=\"".rawurlencode($dlidx)."\"");
+            }
+            
             header("Content-Type: ".$ctype);
             header("Content-Length: ".filesize($path));
             $file=fopen($path,"r");
@@ -970,6 +980,10 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
                     s.dataset.status="done";
                     s.href="index.php?dljob="+update.jobid+"&dlidx="+encodeURIComponent(update.filename);
                     td.appendChild(s);
+                    var forcelink=document.createElement("a");
+                    forcelink.href="index.php?force=true&dljob="+update.jobid+"&dlidx="+encodeURIComponent(update.filename);
+                    forcelink.append(" ⬇ ");
+                    td.appendChild(forcelink);
                     break;
                 }
                 case "error":
@@ -1129,6 +1143,10 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
                         percent_bar.dataset.progress=task.progress.percent;
                         percent_number.dataset.progress=task.progress.percent+"%";
                         status_icon.href="index.php?dljob="+job.jobid+"&dlidx="+encodeURIComponent(task.filename);
+                        var forcelink=document.createElement("a");
+                        forcelink.href="index.php?force=true&dljob="+job.jobid+"&dlidx="+encodeURIComponent(task.filename);
+                        forcelink.append(" ⬇ ");
+                        td_status.appendChild(forcelink);
                         break;
                     }
                     default:
@@ -1291,7 +1309,7 @@ if(isset($_GET['dljob']) && isset($_GET['dlidx']))
                 </tbody>
         </table>
             <br />
-            <a href="/files">download dir</a><br />
-            <a href="/mp3">music</a><br />
+            <a href="index.php?reset">reset configuration</a><br />
+            <a href="index.php?logout">log out</a><br />
     </body>
 </html>
