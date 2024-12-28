@@ -396,6 +396,7 @@ class YTDLP
             case "metadataparser":
             case "embedsubtitle":
             case "hlsnative":
+            case "extractaudio":
             {
                 self::$DOWNLOADER[self::$jobindex]['tasks'][self::$DOWNLOADER[self::$jobindex]['current']]['status']="processing";
                 return [
